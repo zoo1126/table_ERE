@@ -199,6 +199,7 @@ class Framework(object):
 
                 if pair_numbers > 0:
                     # print('current sentence contains {} triple_pairs'.format(pair_numbers))
+                    # 正向解码过程
                     for i in range(pair_numbers):
                         r_index = relations[i]
                         h_start_index = heads[i]
@@ -209,7 +210,7 @@ class Framework(object):
                             t_end_index = tails[i+1]
                             if pred_triple_matrix[r_index][h_start_index][t_end_index] == tag2id['BH2ET']:
                                 # 那么就向下找
-                                for h_end_index in range(h_start_index, seq_lens):
+                                for h_end_index in range(h_start_index + 1, seq_lens):
                                     # 向下找到了结尾位置
                                     if pred_triple_matrix[r_index][h_end_index][t_end_index] == tag2id['EH2ET']:
 
@@ -229,31 +230,33 @@ class Framework(object):
                                         break
                         # 如果当前第一个标签是SH2BT
                         elif pred_triple_matrix[r_index][h_start_index][t_start_index] == tag2id['SH2BT'] and i+1 < pair_numbers:
-                            # 如果下一个标签是SH2ET，找到了尾实体结尾的位置
-                            t_end_index = tails[i+1]
-                            if pred_triple_matrix[r_index][h_start_index][t_end_index] == tag2id['SH2ET']:
-                                sub_head, sub_tail = h_start_index, h_start_index
-                                obj_head, obj_tail = t_start_index, t_end_index
-                                # sub
-                                sub = tokens[sub_head: sub_tail+1]
-                                sub = ''.join([i.lstrip("##") for i in sub])
-                                sub = ' '.join(sub.split('[unused1]')).strip()
-                                # obj
-                                obj = tokens[obj_head: obj_tail + 1]
-                                obj = ''.join([i.lstrip("##") for i in obj])
-                                obj = ' '.join(obj.split('[unused1]')).strip()
-                                rel = id2rel[str(int(r_index))]
-                                if len(sub) > 0 and len(obj) > 0:
-                                    triple_list.append((sub, rel, obj))
-                                break
+                            h_end_index = h_start_index
+                            # 向右寻找SH2ET的位置
+                            for t_end_index in range(t_start_index + 1, seq_lens):
+                                if pred_triple_matrix[r_index][h_end_index][t_end_index] == tag2id['SH2ET']:
+                                    sub_head, sub_tail = h_start_index, h_end_index
+                                    obj_head, obj_tail = t_start_index, t_end_index
+                                    # sub
+                                    sub = tokens[sub_head: sub_tail+1]
+                                    sub = ''.join([i.lstrip("##") for i in sub])
+                                    sub = ' '.join(sub.split('[unused1]')).strip()
+                                    # obj
+                                    obj = tokens[obj_head: obj_tail + 1]
+                                    obj = ''.join([i.lstrip("##") for i in obj])
+                                    obj = ' '.join(obj.split('[unused1]')).strip()
+                                    rel = id2rel[str(int(r_index))]
+                                    if len(sub) > 0 and len(obj) > 0:
+                                        triple_list.append((sub, rel, obj))
+                                    break
                         # 如果当前第一个标签是BH2ST
                         elif pred_triple_matrix[r_index][h_start_index][t_start_index] == tag2id['BH2ST'] and i+1 < pair_numbers:
+                            t_end_index = t_start_index
                             # 从头实体head开始到seq_lens的范围找end的位置
-                            for h_end_index in range(h_start_index, seq_lens):
+                            for h_end_index in range(h_start_index + 1, seq_lens):
                                 # 向下找到了结尾位置
-                                if pred_triple_matrix[r_index][h_end_index][t_start_index] == tag2id['EH2ST']:
+                                if pred_triple_matrix[r_index][h_end_index][t_end_index] == tag2id['EH2ST']:
                                     sub_head, sub_tail = h_start_index, h_end_index
-                                    obj_head, obj_tail = t_start_index, t_start_index
+                                    obj_head, obj_tail = t_start_index, t_end_index
                                     # sub
                                     sub = tokens[sub_head: sub_tail + 1]
                                     sub = ''.join([i.lstrip("##") for i in sub])
@@ -268,6 +271,8 @@ class Framework(object):
                                     break
                         # 如果当前标签是SH2ST表示头尾实体都是单token
                         elif pred_triple_matrix[r_index][h_start_index][t_start_index] == tag2id['SH2ST']:
+                            h_end_index = h_start_index
+                            t_end_index = t_end_index
                             sub_head, sub_tail = h_start_index, h_start_index
                             obj_head, obj_tail = t_start_index, t_start_index
                             # sub
@@ -282,6 +287,82 @@ class Framework(object):
                             if len(sub) > 0 and len(obj) > 0:
                                 triple_list.append((sub, rel, obj))
                             break
+
+                    # 反向解码过程
+                    range_pair_numbers = range(pair_numbers)
+                    # 从右侧开始进行解码
+                    for i in reversed(range_pair_numbers):
+                        r_index = relations[i]
+                        h_end_index = heads[i]
+                        t_end_index = tails[i]
+                        # 如果当前第一个标签为EH2ET即找到head和tail对应最尾处
+                        if pred_triple_matrix[r_index][h_end_index][t_end_index] == tag2id['EH2ET'] and i - 1 >= 0:
+                            # 如果下一个标签为BH2ET,对应head开头和tail结尾的坐标
+                            h_start_index = heads[i - 1]
+                            if pred_triple_matrix[r_index][h_start_index][t_end_index] == tag2id['BH2ET']:
+                                # 那么就向左找tail的开头
+                                t_start_range = range(0, t_end_index)
+                                for t_start_index in reversed(t_start_range):
+                                    # 向左找到了tail开头位置
+                                    if pred_triple_matrix[r_index][h_start_index][t_start_index] == tag2id['BH2BT']:
+
+                                        sub_head, sub_tail = h_start_index, h_end_index
+                                        obj_head, obj_tail = t_start_index, t_end_index
+                                        sub = tokens[sub_head: sub_tail + 1]
+                                        # sub
+                                        sub = ''.join([i.lstrip("##") for i in sub])
+                                        sub = ' '.join(sub.split('[unused1]')).strip()
+                                        obj = tokens[obj_head: obj_tail + 1]
+                                        # obj
+                                        obj = ''.join([i.lstrip("##") for i in obj])
+                                        obj = ' '.join(obj.split('[unused1]')).strip()
+                                        rel = id2rel[str(int(r_index))]
+                                        if len(sub) > 0 and len(obj) > 0:
+                                            triple_list.append((sub, rel, obj))
+                                        break
+                        # 如果当前第一个标签是SH2ET，表示head是单token，tail结尾的坐标
+                        elif pred_triple_matrix[r_index][h_end_index][t_end_index] == tag2id['SH2ET'] and i - 1 >= 0:
+                            h_start_index = h_end_index
+                            # 向左寻找SH2BT，即tail开头的位置
+                            t_start_range = range(0, t_end_index)
+                            for t_start_index in reversed(t_start_range):
+                                if pred_triple_matrix[r_index][h_start_index][t_start_index] == tag2id['SH2BT']:
+                                    sub_head, sub_tail = h_start_index, h_end_index
+                                    obj_head, obj_tail = t_start_index, t_end_index
+                                    # sub
+                                    sub = tokens[sub_head: sub_tail + 1]
+                                    sub = ''.join([i.lstrip("##") for i in sub])
+                                    sub = ' '.join(sub.split('[unused1]')).strip()
+                                    # obj
+                                    obj = tokens[obj_head: obj_tail + 1]
+                                    obj = ''.join([i.lstrip("##") for i in obj])
+                                    obj = ' '.join(obj.split('[unused1]')).strip()
+                                    rel = id2rel[str(int(r_index))]
+                                    if len(sub) > 0 and len(obj) > 0:
+                                        triple_list.append((sub, rel, obj))
+                                    break
+                        # 如果当前第一个标签是EH2ST
+                        elif pred_triple_matrix[r_index][h_end_index][t_end_index] == tag2id['EH2ST'] and i - 1 >= 0:
+                            t_start_index = t_end_index
+                            # 向上寻找BH2ST
+                            h_start_range = range(0, h_end_index)
+                            for h_start_index in reversed(h_start_range):
+                                if pred_triple_matrix[r_index][h_start_index][t_start_index] == tag2id['BH2ST']:
+                                    sub_head, sub_tail = h_start_index, h_end_index
+                                    obj_head, obj_tail = t_start_index, t_end_index
+                                    # sub
+                                    sub = tokens[sub_head: sub_tail + 1]
+                                    sub = ''.join([i.lstrip("##") for i in sub])
+                                    sub = ' '.join(sub.split('[unused1]')).strip()
+                                    # obj
+                                    obj = tokens[obj_head: obj_tail + 1]
+                                    obj = ''.join([i.lstrip("##") for i in obj])
+                                    obj = ' '.join(obj.split('[unused1]')).strip()
+                                    rel = id2rel[str(int(r_index))]
+                                    if len(sub) > 0 and len(obj) > 0:
+                                        triple_list.append((sub, rel, obj))
+                                    break
+
 
 
                 triple_set = set()
